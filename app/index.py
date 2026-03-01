@@ -1,13 +1,13 @@
 from fastapi import FastAPI, Request, HTTPException
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 import uvicorn
 import re
 import zlib
 from typing import Dict, List, Tuple, Optional
 from pydantic import BaseModel
 import os
+from pathlib import Path
 
 app = FastAPI(title="PlantUML to SQL Converter")
 
@@ -443,6 +443,14 @@ async def render(request: PlantUMLRequest):
     except Exception as e:
         raise HTTPException(status_code=400, detail=str(e))
 
+@app.get("/")
+async def root():
+    """Возвращает HTML страницу"""
+    html_path = Path(__file__).parent.parent / "public" / "index.html"
+    if html_path.exists():
+        return HTMLResponse(content=html_path.read_text(encoding="utf-8"), status_code=200)
+    return HTMLResponse(content="<h1>PlantUML to SQL Converter</h1><p>HTML file not found</p>", status_code=404)
+
 # Vercel serverless handler
-async def handler(request):
+async def handler(request: Request):
     return await app(request)
