@@ -1,0 +1,13 @@
+services:
+  - type: web
+    name: plantuml-sql-converter
+    runtime: python
+    repo: https://github.com/yourusername/plantuml-sql-converter
+    plan: free
+    region: frankfurt
+    buildCommand: pip install -r requirements.txt
+    startCommand: uvicorn app.main:app --host 0.0.0.0 --port $PORT
+    healthCheckPath: /health
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.0

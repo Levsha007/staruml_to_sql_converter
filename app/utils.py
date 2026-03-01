@@ -1,4 +1,51 @@
-<!DOCTYPE html>
+import zlib
+
+def encode_plantuml(text: str) -> str:
+    """Правильное кодирование для PlantUML"""
+    # Raw deflate (без zlib-заголовка)
+    compressed = zlib.compress(text.encode("utf-8"))[2:-4]
+    
+    def encode6bit(b):
+        if b < 10:
+            return chr(48 + b)
+        b -= 10
+        if b < 26:
+            return chr(65 + b)
+        b -= 26
+        if b < 26:
+            return chr(97 + b)
+        b -= 26
+        if b == 0:
+            return '-'
+        if b == 1:
+            return '_'
+        return '?'
+    
+    def append3bytes(b1, b2, b3):
+        c1 = b1 >> 2
+        c2 = ((b1 & 0x3) << 4) | (b2 >> 4)
+        c3 = ((b2 & 0xF) << 2) | (b3 >> 6)
+        c4 = b3 & 0x3F
+        return (
+            encode6bit(c1 & 0x3F)
+            + encode6bit(c2 & 0x3F)
+            + encode6bit(c3 & 0x3F)
+            + encode6bit(c4 & 0x3F)
+        )
+    
+    res = ""
+    i = 0
+    while i < len(compressed):
+        b1 = compressed[i]
+        b2 = compressed[i + 1] if i + 1 < len(compressed) else 0
+        b3 = compressed[i + 2] if i + 2 < len(compressed) else 0
+        res += append3bytes(b1, b2, b3)
+        i += 3
+    
+    return res
+
+# HTML шаблон (полная версия)
+HTML_TEMPLATE = """<!DOCTYPE html>
 <html lang="ru">
 <head>
     <meta charset="UTF-8">
@@ -12,7 +59,7 @@
         }
         
         body {
-            font-family: 'SF Mono', Monaco, 'Cascadia Code', 'Consolas', monospace;
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Oxygen, Ubuntu, Cantarell, sans-serif;
             background: #1a1a1a;
             color: #e0e0e0;
             min-height: 100vh;
@@ -123,6 +170,7 @@
             cursor: pointer;
             font-size: 12px;
             font-family: inherit;
+            transition: all 0.2s;
         }
         
         .panel-actions button:hover {
@@ -203,11 +251,22 @@
             padding: 20px;
             text-align: center;
         }
+        
+        @media (max-width: 1200px) {
+            .main-panel {
+                grid-template-columns: 1fr;
+                gap: 10px;
+            }
+            
+            .panel {
+                height: 400px;
+            }
+        }
     </style>
 </head>
 <body>
     <div class="container">
-        <h1>PLANTUML → SQL CONVERTER (PostgreSQL)</h1>
+        <h1>🔄 PLANTUML → SQL CONVERTER (PostgreSQL)</h1>
         
         <div class="examples-panel">
             <div class="examples-title">📐 ПРИМЕРЫ ДИАГРАММ</div>
@@ -268,8 +327,6 @@
     </div>
 
     <script>
-        const API_BASE = ''; // Пустой для относительных путей
-
         // Примеры диаграмм
         const EXAMPLES = {
             example1: `@startuml
@@ -584,4 +641,4 @@ User2 }o--o{ Room2 : участвует
         loadExample('example1');
     </script>
 </body>
-</html>
+</html>"""

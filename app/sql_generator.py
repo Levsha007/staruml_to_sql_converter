@@ -1,128 +1,4 @@
-from fastapi import FastAPI, Request, HTTPException
-from fastapi.responses import HTMLResponse, JSONResponse, FileResponse
-from fastapi.middleware.cors import CORSMiddleware
-import uvicorn
-import re
-import zlib
 from typing import Dict, List, Tuple, Optional
-from pydantic import BaseModel
-import os
-from pathlib import Path
-
-app = FastAPI(title="PlantUML to SQL Converter")
-
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-class PlantUMLRequest(BaseModel):
-    plantuml_code: str
-
-class Entity:
-    def __init__(self, name: str, display_name: str = ""):
-        self.name = name
-        self.display_name = display_name
-        self.attributes = []  # (name, type, is_pk, is_fk, is_uk)
-        self.pk = []  # список полей первичного ключа
-        self.uk = []  # список уникальных ключей
-        self.fk = []  # список внешних ключей
-    
-    def add_attribute(self, name: str, data_type: str, is_pk: bool = False, is_fk: bool = False, is_uk: bool = False):
-        self.attributes.append((name, data_type, is_pk, is_fk, is_uk))
-        if is_pk:
-            self.pk.append(name)
-        if is_uk:
-            self.uk.append(name)
-        if is_fk:
-            self.fk.append(name)
-
-class Relationship:
-    def __init__(self, from_entity: str, to_entity: str, relation_type: str, label: str = ""):
-        self.from_entity = from_entity
-        self.to_entity = to_entity
-        self.relation_type = relation_type
-        self.label = label
-
-class PlantUMLParser:
-    def __init__(self, plantuml_code: str):
-        self.code = plantuml_code
-        self.entities: Dict[str, Entity] = {}
-        self.relationships: List[Relationship] = []
-        self.many_to_many = []
-    
-    def parse(self):
-        lines = self.code.strip().split('\n')
-        current_entity = None
-        
-        for line in lines:
-            line = line.strip()
-            
-            if line.startswith("'") or line.startswith("@startuml") or line.startswith("@enduml"):
-                continue
-            
-            # Поиск entity с русским названием
-            entity_match = re.match(r'entity\s+"([^"]+)"\s+as\s+(\w+)\s*{', line)
-            if not entity_match:
-                entity_match = re.match(r'entity\s+(\w+)\s+as\s+(\w+)\s*{', line)
-            if not entity_match:
-                entity_match = re.match(r'entity\s+(\w+)\s*{', line)
-            
-            if entity_match:
-                if len(entity_match.groups()) == 2:
-                    display_name = entity_match.group(1)
-                    entity_name = entity_match.group(2)
-                else:
-                    display_name = entity_match.group(1)
-                    entity_name = entity_match.group(1)
-                current_entity = Entity(entity_name, display_name)
-                self.entities[entity_name] = current_entity
-                continue
-            
-            # Поиск атрибутов
-            if current_entity:
-                # Формат: +имя : тип <<PK, FK>>
-                attr_match = re.match(r'\s*\+?([\w_]+)\s*:\s*(\w+).*?<<(.*?)>>', line)
-                if attr_match:
-                    attr_name = attr_match.group(1)
-                    attr_type = attr_match.group(2)
-                    constraints = attr_match.group(3)
-                    
-                    is_pk = 'PK' in constraints
-                    is_fk = 'FK' in constraints
-                    is_uk = 'UK' in constraints
-                    current_entity.add_attribute(attr_name, attr_type, is_pk, is_fk, is_uk)
-                else:
-                    # Формат без <<>> (простой атрибут)
-                    simple_match = re.match(r'\s*\+?([\w_]+)\s*:\s*(\w+)', line)
-                    if simple_match and '--' not in line:
-                        attr_name = simple_match.group(1)
-                        attr_type = simple_match.group(2)
-                        current_entity.add_attribute(attr_name, attr_type, False, False, False)
-                    elif '--' in line:
-                        # Разделитель -- пропускаем
-                        pass
-            
-            # Поиск связей
-            rel_match = re.match(r'(\w+)\s*([\|}o][o\|]{0,2}--[o\|]{0,2}[\|o{]?)\s*(\w+)(?:\s*:\s*"?(.*?)"?)?', line)
-            if rel_match:
-                from_entity = rel_match.group(1)
-                rel_type = rel_match.group(2)
-                to_entity = rel_match.group(3)
-                label = rel_match.group(4) if len(rel_match.groups()) >= 4 else ""
-                
-                if from_entity in self.entities and to_entity in self.entities:
-                    rel = Relationship(from_entity, to_entity, rel_type, label)
-                    self.relationships.append(rel)
-                    
-                    # Проверка на многие-ко-многим
-                    if '}o--o{' in rel_type:
-                        self.many_to_many.append((from_entity, to_entity))
-        
-        return self.entities, self.relationships, self.many_to_many
 
 class SQLGenerator:
     def __init__(self, entities: Dict[str, Entity], relationships: List[Relationship], many_to_many: List[Tuple]):
@@ -152,7 +28,6 @@ class SQLGenerator:
     
     def _quote_ident(self, name: str) -> str:
         """Экранирует идентификаторы для PostgreSQL"""
-        # Список зарезервированных слов PostgreSQL
         reserved_keywords = {'user', 'group', 'table', 'column', 'index', 'foreign', 'primary', 'key'}
         if name.lower() in reserved_keywords:
             return f'"{name}"'
@@ -198,7 +73,25 @@ class SQLGenerator:
         sql = []
         
         sql.append("-- SQL код для PostgreSQL")
-        sql.append("-- Сгенерировано из PlantUML диаграммы\n")
+        sql.append("-- Сгенерировано из PlantUML диаграммы")
+        sql.append("-- Дата генерации: " + __import__('datetime').datetime.now().strftime("%Y-%m-%d %H:%M:%S"))
+        sql.append("")
+        
+        # Включаем поддержку внешних ключей
+        sql.append("-- Включаем поддержку внешних ключей")
+        sql.append("SET session_replication_role = 'origin';\n")
+        
+        # Удаляем таблицы если существуют (в обратном порядке зависимостей)
+        sql.append("-- Удаление существующих таблиц")
+        sql.append("DROP TABLE IF EXISTS participants CASCADE;")
+        sql.append("DROP TABLE IF EXISTS messages CASCADE;")
+        sql.append("DROP TABLE IF EXISTS media_streams CASCADE;")
+        sql.append("DROP TABLE IF EXISTS devices CASCADE;")
+        sql.append("DROP TABLE IF EXISTS regular_users CASCADE;")
+        sql.append("DROP TABLE IF EXISTS moderators CASCADE;")
+        sql.append("DROP TABLE IF EXISTS guests CASCADE;")
+        sql.append("DROP TABLE IF EXISTS rooms CASCADE;")
+        sql.append("DROP TABLE IF EXISTS users CASCADE;\n")
         
         # Словарь для отслеживания созданных junction-таблиц
         junction_tables = {}
@@ -368,89 +261,18 @@ class SQLGenerator:
                     sql.append(f"    FOREIGN KEY ({self._quote_ident('room_id')}) REFERENCES {self._quote_ident('rooms')}({self._quote_ident('id')}) ON DELETE CASCADE;")
                     foreign_keys_added.add("fk_participants_rooms")
         
+        # Создаем индексы
+        sql.append("\n-- Индексы для оптимизации")
+        sql.append("CREATE INDEX IF NOT EXISTS idx_messages_room_id ON messages(room_id);")
+        sql.append("CREATE INDEX IF NOT EXISTS idx_messages_sent_at ON messages(sent_at);")
+        sql.append("CREATE INDEX IF NOT EXISTS idx_media_streams_room_id ON media_streams(room_id);")
+        sql.append("CREATE INDEX IF NOT EXISTS idx_participants_room_id ON participants(room_id);")
+        sql.append("CREATE INDEX IF NOT EXISTS idx_users_email ON users(email);")
+        
+        # Добавляем комментарии к таблицам
+        sql.append("\n-- Комментарии к таблицам")
+        for entity_name, entity in self.entities.items():
+            if entity.display_name:
+                sql.append(f"COMMENT ON TABLE {self._quote_ident(entity_name.lower())} IS '{entity.display_name}';")
+        
         return "\n".join(sql)
-
-def encode_plantuml(text: str) -> str:
-    """Правильное кодирование для PlantUML"""
-    # Raw deflate (без zlib-заголовка)
-    compressed = zlib.compress(text.encode("utf-8"))[2:-4]
-    
-    def encode6bit(b):
-        if b < 10:
-            return chr(48 + b)
-        b -= 10
-        if b < 26:
-            return chr(65 + b)
-        b -= 26
-        if b < 26:
-            return chr(97 + b)
-        b -= 26
-        if b == 0:
-            return '-'
-        if b == 1:
-            return '_'
-        return '?'
-    
-    def append3bytes(b1, b2, b3):
-        c1 = b1 >> 2
-        c2 = ((b1 & 0x3) << 4) | (b2 >> 4)
-        c3 = ((b2 & 0xF) << 2) | (b3 >> 6)
-        c4 = b3 & 0x3F
-        return (
-            encode6bit(c1 & 0x3F)
-            + encode6bit(c2 & 0x3F)
-            + encode6bit(c3 & 0x3F)
-            + encode6bit(c4 & 0x3F)
-        )
-    
-    res = ""
-    i = 0
-    while i < len(compressed):
-        b1 = compressed[i]
-        b2 = compressed[i + 1] if i + 1 < len(compressed) else 0
-        b3 = compressed[i + 2] if i + 2 < len(compressed) else 0
-        res += append3bytes(b1, b2, b3)
-        i += 3
-    
-    return res
-
-@app.get("/api/health")
-async def health():
-    return {"status": "ok"}
-
-@app.post("/api/convert")
-async def convert(request: PlantUMLRequest):
-    try:
-        parser = PlantUMLParser(request.plantuml_code)
-        entities, relationships, many_to_many = parser.parse()
-        
-        if not entities:
-            raise HTTPException(status_code=400, detail="Не удалось распознать сущности")
-        
-        generator = SQLGenerator(entities, relationships, many_to_many)
-        sql = generator.generate()
-        
-        return {"sql": sql}
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-@app.post("/api/render")
-async def render(request: PlantUMLRequest):
-    try:
-        encoded = encode_plantuml(request.plantuml_code)
-        image_url = f"https://www.plantuml.com/plantuml/png/{encoded}"
-        return {"image_url": image_url}
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=str(e))
-
-@app.get("/")
-async def root():
-    """Возвращает HTML страницу"""
-    html_path = Path(__file__).parent.parent / "public" / "index.html"
-    if html_path.exists():
-        return HTMLResponse(content=html_path.read_text(encoding="utf-8"), status_code=200)
-    return HTMLResponse(content="<h1>PlantUML to SQL Converter</h1><p>HTML file not found</p>", status_code=404)
-
-# Vercel serverless handler
-async def handler(request: Request):
-    return await app(request)
