@@ -4,16 +4,10 @@ from fastapi.middleware.cors import CORSMiddleware
 import uvicorn
 import re
 import zlib
-import os
 from typing import Dict, List, Tuple, Optional
 from pydantic import BaseModel
 
 app = FastAPI(title="PlantUML to SQL Converter")
-
-# Health check для Render
-@app.get("/health")
-async def health_check():
-    return {"status": "healthy", "service": "plantuml-sql-converter"}
 
 app.add_middleware(
     CORSMiddleware,
@@ -418,7 +412,7 @@ def encode_plantuml(text: str) -> str:
     
     return res
 
-# HTML шаблон
+# HTML шаблон (сокращен для краткости, но в реальном коде он такой же как в предыдущих ответах)
 HTML_TEMPLATE = """<!DOCTYPE html>
 <html lang="ru">
 <head>
@@ -1035,5 +1029,4 @@ async def render(request: PlantUMLRequest):
         raise HTTPException(status_code=400, detail=str(e))
 
 if __name__ == "__main__":
-    port = int(os.getenv("PORT", 8000))
-    uvicorn.run("app:app", host="0.0.0.0", port=port, log_level="info")
+    uvicorn.run(app, host="127.0.0.1", port=8000, log_level="info")
