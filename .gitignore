@@ -1,9 +1,12 @@
 __pycache__/
 *.pyc
-.venv/
+.env
 venv/
 env/
-.vscode/
-.idea/
-*.log
+dist/
+build/
+*.egg-info/
 .DS_Store
+.vscode/
+.vercel/
+vercel.json.backup
